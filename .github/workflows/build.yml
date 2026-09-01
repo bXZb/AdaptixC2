@@ -1,0 +1,256 @@
+name: Build artifacts (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_server:
+        description: "Server (linux-amd64, bundled with all extender .so)"
+        type: boolean
+        default: true
+      build_client_linux_appimage:
+        description: "Client Linux -> AppImage"
+        type: boolean
+        default: true
+      build_client_windows:
+        description: "Client Windows (x64 zip)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: "6.9.2"
+
+jobs:
+  server:
+    name: Server + extenders (linux-amd64)
+    if: ${{ inputs.build_server }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: AdaptixServer/go.mod
+          cache-dependency-path: |
+            AdaptixServer/go.sum
+            AdaptixServer/go.work.sum
+            AdaptixServer/extenders/*/go.sum
+
+      - name: Install mingw-w64 (beacon_agent C++ beacon sources)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64 g++-mingw-w64-i686
+
+      # make server-ext = clean + server + all extenders, mirroring the
+      # official packaging: dist/{adaptixserver,profile.yaml,ssl_gen.sh,
+      # 404page.html,extenders/<name>/...}
+      - name: Build server and extenders
+        run: make server-ext
+
+      - name: Package
+        run: |
+          cd dist
+          tar -czf ../adaptixserver-linux-amd64.tar.gz *
+          cd ..
+          sha256sum adaptixserver-linux-amd64.tar.gz > adaptixserver-linux-amd64.tar.gz.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptixserver-linux-amd64
+          path: |
+            adaptixserver-linux-amd64.tar.gz
+            adaptixserver-linux-amd64.tar.gz.sha256
+          retention-days: 30
+
+  client-linux:
+    name: Client Linux -> AppImage
+    if: ${{ inputs.build_client_linux_appimage }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libgl1-mesa-dev libegl1-mesa-dev libssl-dev \
+            libx11-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
+            libfontconfig1-dev libfreetype6-dev libdbus-1-dev \
+            libsqlite3-dev libfuse2 fuse file wget
+
+      - name: Install Qt ${{ env.QT_VERSION }} (aqt) and CMake 3.31.6
+        run: |
+          pip install aqtinstall
+          aqt install-qt linux desktop ${{ env.QT_VERSION }} linux_gcc_64 \
+            -m qtwebsockets qtsvg qtnetworkauth --outputdir /opt/qt
+          mkdir -p "$HOME/cmake"
+          wget -qO- "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz" | \
+            tar --strip-components=1 -xz -C "$HOME/cmake"
+          echo "$HOME/cmake/bin" >> "$GITHUB_PATH"
+
+      # Mirror the Dockerfile: drop sql driver plugins whose native client
+      # libraries are absent, otherwise linuxdeployqt bundling breaks.
+      - name: Remove bundled sql driver plugins
+        run: |
+          QTD=/opt/qt/${{ env.QT_VERSION }}/gcc_64
+          cd $QTD/plugins/sqldrivers && \
+          rm -f libqsqlmimer.so* libqsqlmysql.so* libqsqlpsql.so* libqsqlodbc.so* 2>/dev/null || true
+          cd $QTD/lib/cmake/Qt6Sql
+          rm -f Qt6QMYSQLDriverPlugin*.cmake Qt6QPSQLDriverPlugin*.cmake Qt6QODBCDriverPlugin*.cmake Qt6QMimerSQLDriverPlugin*.cmake 2>/dev/null || true
+          sed -i 's/QMYSQLDriverPlugin//g; s/QPSQLDriverPlugin//g; s/QODBCDriverPlugin//g; s/QMimerSQLDriverPlugin//g' Qt6SqlPlugins.cmake 2>/dev/null || true
+
+      - name: Download linuxdeployqt and appimagetool
+        run: |
+          wget -q https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage -O /usr/local/bin/linuxdeployqt
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/linuxdeployqt /usr/local/bin/appimagetool
+
+      - name: Build client
+        working-directory: AdaptixClient
+        env:
+          CMAKE_PREFIX_PATH: /opt/qt/${{ env.QT_VERSION }}/gcc_64
+          LD_LIBRARY_PATH: /opt/qt/${{ env.QT_VERSION }}/gcc_64/lib
+        run: |
+          export PATH=/opt/qt/${{ env.QT_VERSION }}/gcc_64/bin:$PATH
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt/${{ env.QT_VERSION }}/gcc_64
+          cmake --build build -j$(nproc)
+
+      - name: Assemble AppDir
+        run: |
+          APPDIR=${{ github.workspace }}/client-dist/AdaptixClient.AppDir
+          mkdir -p $APPDIR/usr/bin \
+                   $APPDIR/usr/share/applications \
+                   $APPDIR/usr/share/icons/hicolor/256x256/apps
+          cp AdaptixClient/build/AdaptixClient $APPDIR/usr/bin/
+          cp AdaptixClient/Resources/Logo.png $APPDIR/usr/share/icons/hicolor/256x256/apps/AdaptixClient.png
+          printf '[Desktop Entry]\nType=Application\nName=Adaptix Client\nExec=AdaptixClient\nIcon=AdaptixClient\nCategories=Network;Security;\nTerminal=false\n' \
+            > $APPDIR/usr/share/applications/AdaptixClient.desktop
+          ln -sf usr/bin/AdaptixClient $APPDIR/AppRun
+          ln -sf usr/share/icons/hicolor/256x256/apps/AdaptixClient.png $APPDIR/AdaptixClient.png
+          ln -sf usr/share/applications/AdaptixClient.desktop $APPDIR/AdaptixClient.desktop
+
+      - name: Create AppImage
+        working-directory: client-dist
+        env:
+          LD_LIBRARY_PATH: /opt/qt/${{ env.QT_VERSION }}/gcc_64/lib
+        run: |
+          export PATH=/opt/qt/${{ env.QT_VERSION }}/gcc_64/bin:$PATH
+          /usr/local/bin/linuxdeployqt --appimage-extract
+          ./squashfs-root/AppRun AdaptixClient.AppDir/usr/share/applications/AdaptixClient.desktop \
+              -bundle-non-qt-libs -no-translations
+          rm -rf squashfs-root
+          /usr/local/bin/appimagetool --appimage-extract
+          ARCH=x86_64 ./squashfs-root/AppRun AdaptixClient.AppDir AdaptixClient-x86_64.AppImage
+          rm -rf squashfs-root
+          sha256sum AdaptixClient-x86_64.AppImage > AdaptixClient-x86_64.AppImage.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdaptixClient-linux-x64-AppImage
+          path: |
+            client-dist/AdaptixClient-x86_64.AppImage
+            client-dist/AdaptixClient-x86_64.AppImage.sha256
+          retention-days: 30
+
+  client-windows:
+    name: Client Windows (x64 zip)
+    if: ${{ inputs.build_client_windows }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Runner ships MSYS2 preinstalled at C:\msys64; CMakeLists hardcodes
+      # Qt6_DIR=C:/msys64/mingw64/lib/cmake, so reuse it (release: false).
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-declarative
+            mingw-w64-x86_64-qt6-websockets
+            mingw-w64-x86_64-qt6-svg
+            mingw-w64-x86_64-qt6-tools
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Build client
+        working-directory: AdaptixClient
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j4
+
+      - name: Deploy Qt runtime and package
+        working-directory: AdaptixClient
+        run: |
+          set -euo pipefail
+          DEST=client-dist/AdaptixClient-windows-x64
+          mkdir -p "$DEST"
+          cp build/AdaptixClient.exe "$DEST/"
+          export PATH="/mingw64/share/qt6/bin:/mingw64/bin:$PATH"
+          if command -v windeployqt6 >/dev/null 2>&1; then
+            windeployqt6 --release "$DEST/AdaptixClient.exe"
+          else
+            windeployqt --release "$DEST/AdaptixClient.exe"
+          fi
+          # Extra MinGW runtime DLLs that windeployqt often misses (see AdaptixClient/build.bat).
+          # Globs keep this working when MSYS2 rolls ICU / OpenSSL SONAMEs.
+          shopt -s nullglob
+          BIN=/mingw64/bin
+          extras=(
+            "$BIN"/libsqlite3-*.dll
+            "$BIN"/libssl-*.dll
+            "$BIN"/libcrypto-*.dll
+            "$BIN"/libfreetype-*.dll
+            "$BIN"/libharfbuzz-*.dll
+            "$BIN"/libmd4c.dll
+            "$BIN"/libpng16-*.dll
+            "$BIN"/zlib1.dll
+            "$BIN"/libb2-*.dll
+            "$BIN"/libdouble-conversion.dll
+            "$BIN"/libicu*.dll
+            "$BIN"/libpcre2-16-*.dll
+            "$BIN"/libpcre2-8-*.dll
+            "$BIN"/libbrotlidec.dll
+            "$BIN"/libbrotlicommon.dll
+            "$BIN"/libzstd.dll
+            "$BIN"/libbz2-*.dll
+            "$BIN"/libglib-2.0-*.dll
+            "$BIN"/libgraphite2.dll
+            "$BIN"/libintl-*.dll
+            "$BIN"/libiconv-*.dll
+            "$BIN"/libwinpthread-*.dll
+            "$BIN"/libgcc_s_seh-*.dll
+            "$BIN"/libstdc++-*.dll
+          )
+          for dll in "${extras[@]}"; do
+            cp -n "$dll" "$DEST/" || true
+          done
+          cd client-dist
+          powershell.exe -Command "Compress-Archive -Path AdaptixClient-windows-x64 -DestinationPath AdaptixClient-windows-x64.zip -Force"
+          sha256sum AdaptixClient-windows-x64.zip > AdaptixClient-windows-x64.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdaptixClient-windows-x64
+          path: |
+            AdaptixClient/client-dist/AdaptixClient-windows-x64.zip
+            AdaptixClient/client-dist/AdaptixClient-windows-x64.zip.sha256
+          retention-days: 30

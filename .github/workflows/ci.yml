@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [testing-v2.0, main, dev, "wip/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: "6.9.2"
+
+jobs:
+  discover:
+    name: Discover extenders
+    runs-on: ubuntu-24.04
+    outputs:
+      extenders: ${{ steps.discover.outputs.extenders }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: discover
+        run: |
+          JSON=$(python3 - <<'EOF'
+          import json, os
+          base = "AdaptixServer/extenders"
+          entries = []
+          for d in sorted(os.listdir(base)):
+              p = os.path.join(base, d)
+              if os.path.isdir(p) and os.path.isfile(os.path.join(p, "Makefile")):
+                  entries.append(d)
+          print(json.dumps(entries))
+          EOF
+          )
+          echo "extenders=$JSON" >> "$GITHUB_OUTPUT"
+
+  server:
+    name: Server (workspace build + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: AdaptixServer/go.mod
+          cache-dependency-path: |
+            AdaptixServer/go.sum
+            AdaptixServer/go.work.sum
+            AdaptixServer/extenders/*/go.sum
+
+      - name: Build server workspace
+        working-directory: AdaptixServer
+        run: go build ./...
+
+      - name: Test server workspace
+        working-directory: AdaptixServer
+        run: go test ./...
+
+  extenders:
+    name: Extender ${{ matrix.extender }}
+    needs: discover
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        extender: ${{ fromJson(needs.discover.outputs.extenders) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: AdaptixServer/go.mod
+          cache-dependency-path: |
+            AdaptixServer/extenders/${{ matrix.extender }}/go.sum
+            AdaptixServer/extenders/${{ matrix.extender }}/src_gopher/go.sum
+
+      - name: Install mingw-w64 (beacon_agent C++ beacon sources)
+        if: matrix.extender == 'beacon_agent'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64 g++-mingw-w64-i686
+
+      - name: Build plugin (make)
+        working-directory: AdaptixServer/extenders/${{ matrix.extender }}
+        run: make
+
+      - name: Unit tests
+        working-directory: AdaptixServer/extenders/${{ matrix.extender }}
+        run: go test ./...
+
+  tools:
+    name: axtool
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: AdaptixTools/go.mod
+          cache-dependency-path: AdaptixTools/go.sum
+
+      - name: Build axtool
+        working-directory: AdaptixTools
+        run: make
+
+  client:
+    name: Client (Qt6 build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libgl1-mesa-dev libegl1-mesa-dev libssl-dev \
+            libx11-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
+            libfontconfig1-dev libfreetype6-dev libdbus-1-dev libsqlite3-dev
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        run: |
+          pip install aqtinstall
+          aqt install-qt linux desktop ${{ env.QT_VERSION }} linux_gcc_64 \
+            -m qtwebsockets qtsvg qtnetworkauth --outputdir /opt/qt
+
+      - name: Configure
+        run: cmake -S AdaptixClient -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt/${{ env.QT_VERSION }}/gcc_64
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
