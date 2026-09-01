@@ -134,7 +134,7 @@ jobs:
         run: |
           pip install aqtinstall
           aqt install-qt linux desktop ${{ env.QT_VERSION }} linux_gcc_64 \
-            -m qtwebsockets qtsvg qtnetworkauth --outputdir /opt/qt
+            -m qtwebsockets qtnetworkauth --outputdir /opt/qt
 
       - name: Configure
         run: cmake -S AdaptixClient -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt/${{ env.QT_VERSION }}/gcc_64

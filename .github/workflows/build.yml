@@ -92,7 +92,7 @@ jobs:
         run: |
           pip install aqtinstall
           aqt install-qt linux desktop ${{ env.QT_VERSION }} linux_gcc_64 \
-            -m qtwebsockets qtsvg qtnetworkauth --outputdir /opt/qt
+            -m qtwebsockets qtnetworkauth --outputdir /opt/qt
           mkdir -p "$HOME/cmake"
           wget -qO- "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz" | \
             tar --strip-components=1 -xz -C "$HOME/cmake"
