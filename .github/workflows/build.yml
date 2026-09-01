@@ -37,17 +37,25 @@ jobs:
             AdaptixServer/go.sum
             AdaptixServer/go.work.sum
             AdaptixServer/extenders/*/go.sum
+            AdaptixTools/go.sum
 
-      - name: Install mingw-w64 (beacon_agent C++ beacon sources)
+      - name: Build axtool
+        working-directory: AdaptixTools
+        run: make
+
+      # Author path: axtool compiles adaptixserver, installs adaptix.spec
+      # packages: into dist/extenders, and registers each config.yaml under
+      # Teamserver.extenders in dist/profile.yaml.
+      - name: Build server and extenders (axtool)
+        run: ./AdaptixTools/dist/axtool adaptix.spec server build --gen-cert -d
+
+      - name: Check runtime profile registered plugins
         run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-mingw-w64-x86-64 g++-mingw-w64-i686
-
-      # make server-ext = clean + server + all extenders, mirroring the
-      # official packaging: dist/{adaptixserver,profile.yaml,ssl_gen.sh,
-      # 404page.html,extenders/<name>/...}
-      - name: Build server and extenders
-        run: make server-ext
+          test -x dist/adaptixserver
+          grep -q 'extenders/beacon_listener_http/config.yaml' dist/profile.yaml
+          grep -q 'extenders/beacon_agent/config.yaml' dist/profile.yaml
+          test -f dist/extenders/beacon_listener_http/listener_beacon_http.so
+          test -f dist/extenders/beacon_agent/agent_beacon.so
 
       - name: Package
         run: |

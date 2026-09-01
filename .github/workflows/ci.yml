@@ -17,30 +17,8 @@ env:
   QT_VERSION: "6.9.2"
 
 jobs:
-  discover:
-    name: Discover extenders
-    runs-on: ubuntu-24.04
-    outputs:
-      extenders: ${{ steps.discover.outputs.extenders }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: discover
-        run: |
-          JSON=$(python3 - <<'EOF'
-          import json, os
-          base = "AdaptixServer/extenders"
-          entries = []
-          for d in sorted(os.listdir(base)):
-              p = os.path.join(base, d)
-              if os.path.isdir(p) and os.path.isfile(os.path.join(p, "Makefile")):
-                  entries.append(d)
-          print(json.dumps(entries))
-          EOF
-          )
-          echo "extenders=$JSON" >> "$GITHUB_OUTPUT"
-
   server:
-    name: Server (workspace build + test)
+    name: Server (axtool)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -52,61 +30,26 @@ jobs:
             AdaptixServer/go.sum
             AdaptixServer/go.work.sum
             AdaptixServer/extenders/*/go.sum
-
-      - name: Build server workspace
-        working-directory: AdaptixServer
-        run: go build ./...
-
-      - name: Test server workspace
-        working-directory: AdaptixServer
-        run: go test ./...
-
-  extenders:
-    name: Extender ${{ matrix.extender }}
-    needs: discover
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        extender: ${{ fromJson(needs.discover.outputs.extenders) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: AdaptixServer/go.mod
-          cache-dependency-path: |
-            AdaptixServer/extenders/${{ matrix.extender }}/go.sum
-            AdaptixServer/extenders/${{ matrix.extender }}/src_gopher/go.sum
-
-      - name: Install mingw-w64 (beacon_agent C++ beacon sources)
-        if: matrix.extender == 'beacon_agent'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-mingw-w64-x86-64 g++-mingw-w64-i686
-
-      - name: Build plugin (make)
-        working-directory: AdaptixServer/extenders/${{ matrix.extender }}
-        run: make
-
-      - name: Unit tests
-        working-directory: AdaptixServer/extenders/${{ matrix.extender }}
-        run: go test ./...
-
-  tools:
-    name: axtool
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: AdaptixTools/go.mod
-          cache-dependency-path: AdaptixTools/go.sum
+            AdaptixTools/go.sum
 
       - name: Build axtool
         working-directory: AdaptixTools
         run: make
+
+      - name: Build server and packages (axtool)
+        run: ./AdaptixTools/dist/axtool adaptix.spec server build -d
+
+      - name: Check runtime profile registered plugins
+        run: |
+          test -x dist/adaptixserver
+          grep -q 'extenders/beacon_listener_http/config.yaml' dist/profile.yaml
+          grep -q 'extenders/beacon_agent/config.yaml' dist/profile.yaml
+          test -f dist/extenders/beacon_listener_http/listener_beacon_http.so
+          test -f dist/extenders/beacon_agent/agent_beacon.so
+
+      - name: Test server workspace
+        working-directory: AdaptixServer
+        run: go test ./...
 
   client:
     name: Client (Qt6 build)
