@@ -26,26 +26,57 @@ type BulkResolver struct {
 }
 
 func (r *BulkResolver) Resolve(_ context.Context) ([]Resolved, func(), error) {
-	entries, err := os.ReadDir(r.Root)
+	dirs, err := findPluginDirs(r.Root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("scan %s: %w", r.Root, err)
+		return nil, nil, err
 	}
-	var out []Resolved
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		child := filepath.Join(r.Root, e.Name())
-		if _, err := os.Stat(filepath.Join(child, specFileName)); err != nil {
-			continue
-		}
-		out = append(out, Resolved{
-			LocalDir: child,
-			Origin:   child,
-		})
-	}
-	if len(out) == 0 {
-		return nil, nil, fmt.Errorf("directory %s contains no subdirs with %s", r.Root, specFileName)
+	out := make([]Resolved, 0, len(dirs))
+	for _, d := range dirs {
+		out = append(out, Resolved{LocalDir: d, Origin: d})
 	}
 	return out, nil, nil
+}
+
+func hasSpec(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, specFileName))
+	return err == nil && !st.IsDir()
+}
+
+func findPluginDirs(root string) ([]string, error) {
+	return findPluginDirsLimited(root, 3)
+}
+
+func findPluginDirsLimited(root string, unwrap int) ([]string, error) {
+	if hasSpec(root) {
+		return []string{root}, nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
+	}
+	var dirs []string
+	var only string
+	nDirs := 0
+	for _, e := range entries {
+		if !e.IsDir() || skipDirName(e.Name()) {
+			continue
+		}
+		child := filepath.Join(root, e.Name())
+		nDirs++
+		only = child
+		if hasSpec(child) {
+			dirs = append(dirs, child)
+		}
+	}
+	if len(dirs) > 0 {
+		return dirs, nil
+	}
+	if nDirs == 1 && unwrap > 0 {
+		return findPluginDirsLimited(only, unwrap-1)
+	}
+	return nil, fmt.Errorf("directory %s contains no %s (expected a plugin dir or archive of plugin dirs)", root, specFileName)
+}
+
+func skipDirName(name string) bool {
+	return name == "__MACOSX" || name == ".DS_Store" || (len(name) > 0 && name[0] == '.')
 }

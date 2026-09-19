@@ -1,10 +1,10 @@
 #include <Utils/CustomElements/TextEditConsole.h>
+#include <QTextOption>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QTimer>
 #include <QTextBlock>
 #include <QPainter>
-#include <QKeyEvent>
 #include <oclero/qlementine/widgets/Menu.hpp>
 #include <Utils/NonBlockingDialogs.h>
 #include <Client/Settings.h>
@@ -29,10 +29,7 @@ TextEditConsole::TextEditConsole(QWidget* parent, int maxLines, bool noWrap, boo
     cachedCursor.movePosition(QTextCursor::End);
     prependCursor.movePosition(QTextCursor::Start);
 
-    if (noWrap)
-        setLineWrapMode(QPlainTextEdit::NoWrap);
-    else
-        setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    applyWrapMode();
 
     highlighter = new ConsoleHighlighter(this->document());
 
@@ -89,6 +86,9 @@ void TextEditConsole::createContextMenu(const QPoint &pos) {
     QAction *showHistory = menu->addAction("Show history (Ctrl + H)");
     connect(showHistory, &QAction::triggered, this, [this]() { Q_EMIT ctx_history(); });
 
+    QAction *showHelp = menu->addAction("Command help (Ctrl + Shift + H)");
+    connect(showHelp, &QAction::triggered, this, [this]() { Q_EMIT ctx_help(); });
+
     QAction *setBufferSizeAction = menu->addAction("Set buffer size...");
     connect(setBufferSizeAction, &QAction::triggered, this, [this]() {
         bool ok;
@@ -102,10 +102,7 @@ void TextEditConsole::createContextMenu(const QPoint &pos) {
     noWrapAction->setChecked(noWrap);
     connect(noWrapAction, &QAction::toggled, this, [this](bool checked) {
         noWrap = checked;
-        if (checked)
-            setLineWrapMode(QPlainTextEdit::NoWrap);
-        else
-            setLineWrapMode(QPlainTextEdit::WidgetWidth);
+        applyWrapMode();
     });
 
     QAction *autoScrollAction = menu->addAction("Auto scroll");
@@ -203,6 +200,17 @@ void TextEditConsole::paintEvent(QPaintEvent* event)
 
 bool TextEditConsole::isNoWrapEnabled() const {
     return noWrap;
+}
+
+void TextEditConsole::applyWrapMode()
+{
+    if (noWrap) {
+        setLineWrapMode(QPlainTextEdit::NoWrap);
+        setWordWrapMode(QTextOption::NoWrap);
+        return;
+    }
+    setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    setWordWrapMode(QTextOption::WrapAnywhere);
 }
 
 void TextEditConsole::appendChunk(const QString& text, const QTextCharFormat& fmt)

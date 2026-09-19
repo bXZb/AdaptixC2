@@ -475,6 +475,8 @@ public:
     Q_INVOKABLE void    appendText(const QString& text) const;
     Q_INVOKABLE void    setPlaceholder(const QString& text) const;
     Q_INVOKABLE void    setReadOnly(const bool& readonly) const;
+    Q_INVOKABLE void    setMinimumHeight(int h) const;
+    Q_INVOKABLE void    setMaximumHeight(int h) const;
 };
 
 
@@ -616,6 +618,7 @@ public:
     Q_INVOKABLE void setText(const QString& text) const;
     Q_INVOKABLE QString text() const;
     Q_INVOKABLE void setWordWrap(bool on) const;
+    Q_INVOKABLE void setAlignment(const QString& align) const;
     Q_INVOKABLE void setIcon(const QString& resourcePath);
     Q_INVOKABLE void setIconSize(int size);
     Q_INVOKABLE void setIconSize(int width, int height);
@@ -647,8 +650,9 @@ public:
 
 class AxTableWidgetWrapper : public QObject, public AbstractAxElement, public AbstractAxVisualElement {
 Q_OBJECT
-    bool menuEnabled = false;
-    bool readonly    = false;
+    bool menuEnabled   = false;
+    bool catalogMenu   = false;
+    bool readonly      = false;
 
 public:
     QTableView*         table;
@@ -686,6 +690,7 @@ public:
     Q_INVOKABLE void     clear();
     Q_INVOKABLE QJSValue selectedRows();
     Q_INVOKABLE void     setMenuEnabled(bool enabled);
+    Q_INVOKABLE void     setCatalogMenuEnabled(bool enabled);
     Q_INVOKABLE void     removeRow(int row);
     Q_INVOKABLE void     setExpanding(bool enabled);
 
@@ -698,6 +703,9 @@ Q_SIGNALS:
     void cellChanged(int row, int column);
     void cellClicked(int row, int column);
     void cellDoubleClicked(int row, int column);
+    void addClicked();
+    void removeClicked();
+    void configClicked();
 };
 
 
@@ -712,8 +720,9 @@ Q_OBJECT
     QPushButton*  btnRemove;
     QJSEngine*    engine;
 
-    bool readonly    = false;
-    bool menuEnabled = true;
+    bool readonly         = false;
+    bool menuEnabled      = true;
+    bool startStopEnabled = false;
 
 public:
     explicit AxListWidgetWrapper(QWidget* container, QListWidget* widget, QPushButton* btnAdd, QPushButton* btnRemove, QJSEngine* engine, QObject* parent = nullptr);
@@ -742,6 +751,7 @@ public:
     Q_INVOKABLE void     setDragDropEnabled(bool enabled);
     Q_INVOKABLE void     setMenuEnabled(bool enabled);
     Q_INVOKABLE void     setButtonsEnabled(bool enabled);
+    Q_INVOKABLE void     setStartStopEnabled(bool enabled);
     Q_INVOKABLE void     setExpanding(bool enabled);
 
 private Q_SLOTS:
@@ -756,6 +766,8 @@ Q_SIGNALS:
     void itemDoubleClickedText(const QString& text);
     void addClicked();
     void removeClicked();
+    void startClicked();
+    void stopClicked();
 };
 
 
@@ -1020,6 +1032,8 @@ public:
     Q_INVOKABLE void setPlaceholder(const QString& text) const;
     Q_INVOKABLE QString content() const;
     Q_INVOKABLE void setContent(const QString& value);
+    Q_INVOKABLE QString text() const;
+    Q_INVOKABLE void setText(const QString& text) const;
 
 private Q_SLOTS:
     void onSelectFile();

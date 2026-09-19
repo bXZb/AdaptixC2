@@ -75,7 +75,7 @@ cd dist && ./adaptixserver -profile profile.yaml
 
 | Group          | Commands                                                                                       | Needs `spec` |
 |----------------|------------------------------------------------------------------------------------------------|--------------|
-| **server**     | `build`, `daemon` (`install` / `uninstall` / `start` / `stop` / `restart` / `status` / `logs`) | yes          |
+| **server**     | `build`, `daemon` (install / start / stop / logs / …)                                          | yes          |
 | **client**     | `build`                                                                                        | yes          |
 | **ext**        | `list` (`ls`), `info`, `install`, `uninstall`                                                  | yes          |
 | **profile**    | `show`, `get`, `set`                                                                           | yes          |
@@ -126,7 +126,7 @@ axtool adaptix.spec ext install --from packages.yaml
 | `--packages`           | Install all `packages:` from `adaptix.spec`                    |
 | `--from`               | Install all sources listed in a packages YAML file             |
 
-`<source>` may be a local path, `github.com/org/repo@ref`, or a git URL.
+`<source>` may be a local directory, a plugin archive (`.zip` / `.tar` / `.tar.gz` / `.tgz`), `github.com/org/repo@ref`, or a git URL. An archive may hold one plugin or several plugin dirs (each with `axtool.spec`); a single wrapper folder is unwrapped.
 
 Install steps for an **extender**: copy sources under `plugin_dir`, update `go.work`, run `build:`, collect `release:`, deploy to `ext_dir/<name>/`, register config path under `Teamserver.extenders`, update `AdaptixServer/.installed_plugins.yaml`.
 

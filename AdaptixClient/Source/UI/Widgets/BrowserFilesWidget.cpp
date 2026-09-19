@@ -134,6 +134,7 @@ void BrowserFilesWidget::createUI()
     loadingSpinner->setVisible(false);
 
     tableModel = new QStandardItemModel(this);
+    tableModel->setSortRole(Qt::UserRole);
 
     tableView = new QTableView(this);
     tableView->setModel(tableModel);
@@ -145,7 +146,8 @@ void BrowserFilesWidget::createUI()
     tableView->setWordWrap(true);
     tableView->setCornerButtonEnabled(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->setAlternatingRowColors(true);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);

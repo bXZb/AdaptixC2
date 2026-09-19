@@ -33,6 +33,7 @@
 #include <QGuiApplication>
 #include <QWindow>
 #include <QCursor>
+#include <QSizePolicy>
 
 namespace {
 
@@ -659,6 +660,18 @@ void AxTextMultiWrapper::setPlaceholder(const QString& text) const { textedit->s
 
 void AxTextMultiWrapper::setReadOnly(const bool &readonly) const { textedit->setReadOnly(readonly); }
 
+void AxTextMultiWrapper::setMinimumHeight(int h) const
+{
+    if (textedit && h > 0)
+        textedit->setMinimumHeight(h);
+}
+
+void AxTextMultiWrapper::setMaximumHeight(int h) const
+{
+    if (textedit && h > 0)
+        textedit->setMaximumHeight(h);
+}
+
 
 
 /// LOGVIEW
@@ -786,6 +799,21 @@ void AxLabelWrapper::setWordWrap(bool on) const
         label->setWordWrap(on);
 }
 
+void AxLabelWrapper::setAlignment(const QString& align) const
+{
+    if (!label)
+        return;
+    if (align == QLatin1String("right")) {
+        label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    } else if (align == QLatin1String("center")) {
+        label->setAlignment(Qt::AlignCenter);
+        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    } else {
+        label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    }
+}
+
 void AxLabelWrapper::applyIcon() const
 {
     if (!label)
@@ -877,12 +905,14 @@ AxTableWidgetWrapper::AxTableWidgetWrapper(const QJSValue &headers, QTableView* 
     table->setWordWrap( true );
     table->setCornerButtonEnabled( true );
     table->setSelectionBehavior( QAbstractItemView::SelectRows );
-    table->setFocusPolicy( Qt::NoFocus );
+    table->setSelectionMode( QAbstractItemView::ExtendedSelection );
+    table->setFocusPolicy( Qt::ClickFocus );
     table->horizontalHeader()->setSectionResizeMode( QHeaderView::Stretch );
     table->horizontalHeader()->setCascadingSectionResizes( true );
     table->horizontalHeader()->setHighlightSections( false );
     table->verticalHeader()->setVisible( false );
     table->setItemDelegate(new PaddingDelegate(table));
+    installViewSelectAll(table);
 
     this->setColumns(headers);
 }
@@ -1010,7 +1040,7 @@ void AxTableWidgetWrapper::setReadOnly(const bool read)
     this->readonly = read;
     if (table) {
         if (read) {
-            table->setFocusPolicy(Qt::NoFocus);
+            table->setFocusPolicy(Qt::ClickFocus);
             table->setEditTriggers(QAbstractItemView::NoEditTriggers);
             table->setSelectionBehavior(QAbstractItemView::SelectRows);
         } else {
@@ -1075,6 +1105,13 @@ QJSValue AxTableWidgetWrapper::selectedRows()
     return jsArray;
 }
 
+void AxTableWidgetWrapper::setCatalogMenuEnabled(const bool enabled)
+{
+    catalogMenu = enabled;
+    if (enabled)
+        setMenuEnabled(true);
+}
+
 void AxTableWidgetWrapper::setMenuEnabled(const bool enabled)
 {
     this->menuEnabled = enabled;
@@ -1117,12 +1154,26 @@ void AxTableWidgetWrapper::showContextMenu(const QPoint &pos)
     oclero::qlementine::Menu menu(table);
 
     QAction* addAction = menu.addAction(QStringLiteral("Add"));
+    QAction* configAction = nullptr;
+    if (catalogMenu)
+        configAction = menu.addAction(QStringLiteral("Config"));
     QAction* removeAction = menu.addAction(QStringLiteral("Remove"));
-    addAction->setEnabled(!readonly);
-    removeAction->setEnabled(!readonly && table->currentIndex().isValid());
-
-    connect(addAction, &QAction::triggered, this, &AxTableWidgetWrapper::onMenuAddRow);
-    connect(removeAction, &QAction::triggered, this, &AxTableWidgetWrapper::onMenuRemoveRow);
+    const bool hasRow = table->currentIndex().isValid();
+    if (catalogMenu) {
+        addAction->setEnabled(true);
+        if (configAction)
+            configAction->setEnabled(hasRow);
+        removeAction->setEnabled(hasRow);
+        connect(addAction, &QAction::triggered, this, [this]() { Q_EMIT addClicked(); });
+        if (configAction)
+            connect(configAction, &QAction::triggered, this, [this]() { Q_EMIT configClicked(); });
+        connect(removeAction, &QAction::triggered, this, [this]() { Q_EMIT removeClicked(); });
+    } else {
+        addAction->setEnabled(!readonly);
+        removeAction->setEnabled(!readonly && hasRow);
+        connect(addAction, &QAction::triggered, this, &AxTableWidgetWrapper::onMenuAddRow);
+        connect(removeAction, &QAction::triggered, this, &AxTableWidgetWrapper::onMenuRemoveRow);
+    }
 
     QWidget* origin = table->viewport() ? table->viewport() : table;
     menu.exec(origin->mapToGlobal(pos));
@@ -1351,6 +1402,15 @@ void AxListWidgetWrapper::showContextMenu(const QPoint &pos)
     oclero::qlementine::Menu menu(list);
 
     QAction* addAction = menu.addAction(QStringLiteral("Add"));
+    QAction* startAction = nullptr;
+    QAction* stopAction = nullptr;
+    if (startStopEnabled) {
+        startAction = menu.addAction(QStringLiteral("Start"));
+        stopAction = menu.addAction(QStringLiteral("Stop"));
+        const bool hasRow = list->currentRow() >= 0 || !list->selectedItems().isEmpty();
+        startAction->setEnabled(hasRow);
+        stopAction->setEnabled(hasRow);
+    }
     QAction* removeAction = menu.addAction(QStringLiteral("Remove"));
     removeAction->setEnabled(list->currentRow() >= 0 || !list->selectedItems().isEmpty());
 
@@ -1358,6 +1418,10 @@ void AxListWidgetWrapper::showContextMenu(const QPoint &pos)
         Q_EMIT addClicked();
         onAddClicked();
     });
+    if (startAction) {
+        connect(startAction, &QAction::triggered, this, [this]() { Q_EMIT startClicked(); });
+        connect(stopAction, &QAction::triggered, this, [this]() { Q_EMIT stopClicked(); });
+    }
     connect(removeAction, &QAction::triggered, this, [this]() {
         Q_EMIT removeClicked();
         onRemoveClicked();
@@ -1370,6 +1434,11 @@ void AxListWidgetWrapper::setButtonsEnabled(const bool enabled)
 {
     btnAdd->setVisible(enabled);
     btnRemove->setVisible(enabled);
+}
+
+void AxListWidgetWrapper::setStartStopEnabled(const bool enabled)
+{
+    startStopEnabled = enabled;
 }
 
 void AxListWidgetWrapper::setExpanding(bool enabled)
@@ -1949,6 +2018,14 @@ void AxSelectorFile::jsonUnmarshal(const QVariant& value)
 
 QString AxSelectorFile::content() const { return fileContent; }
 
+QString AxSelectorFile::text() const { return lineEdit ? lineEdit->text() : QString(); }
+
+void AxSelectorFile::setText(const QString& text) const
+{
+    if (lineEdit)
+        lineEdit->setText(text);
+}
+
 void AxSelectorFile::setContent(const QString& value)
 {
     fileContent = value;
@@ -1996,7 +2073,8 @@ AxDialogCreds::AxDialogCreds(const QJSValue &headers, AuthProfile* profile, QWid
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);
     tableView->horizontalHeader()->setHighlightSections(false);
@@ -2248,7 +2326,8 @@ AxDialogAgents::AxDialogAgents(const QJSValue &headers, const QVector<AgentData>
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);
     tableView->horizontalHeader()->setHighlightSections(false);
@@ -2419,7 +2498,8 @@ AxDialogListeners::AxDialogListeners(const QJSValue &headers, const QVector<List
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);
     tableView->horizontalHeader()->setHighlightSections(false);
@@ -2567,7 +2647,8 @@ AxDialogTargets::AxDialogTargets(const QJSValue &headers, AuthProfile* profile, 
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);
     tableView->horizontalHeader()->setHighlightSections(false);
@@ -2829,7 +2910,8 @@ AxDialogDownloads::AxDialogDownloads(const QJSValue &headers, AuthProfile* profi
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    tableView->setFocusPolicy(Qt::NoFocus);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tableView->horizontalHeader()->setCascadingSectionResizes(true);
     tableView->horizontalHeader()->setHighlightSections(false);
@@ -3127,6 +3209,8 @@ AxDialogPayloads::AxDialogPayloads(const QJSValue &headers, AuthProfile* profile
     tableView->setWordWrap(true);
     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    tableView->setFocusPolicy(Qt::ClickFocus);
+    installViewSelectAll(tableView);
     tableView->verticalHeader()->setVisible(false);
     tableView->setItemDelegate(new PaddingDelegate(tableView));
     tableView->horizontalHeader()->setStretchLastSection(true);

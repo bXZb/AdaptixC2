@@ -374,15 +374,7 @@ func (t *TransportDNS) handleGET(req *dnsRequest, w dns.ResponseWriter) []byte {
 	if isEmpty || len(data) == 0 {
 		return nil
 	}
-
-	stats, n, ok := Ts.TsFrameTakeStatTasks(agentId)
-	if ok && !stats.Select().Empty() {
-		msg := fmt.Sprintf("Sent %s", adaptix.FormatByteSize(int(total)))
-		if n > 1 {
-			msg = fmt.Sprintf("%s (in %d requests)", msg, n)
-		}
-		Ts.TsAgentConsoleOutput(agentId, "", adaptix.MESSAGE_INFO, msg, "", false)
-	}
+	adaptix.NoteFrameSent(Ts, agentId)
 
 	frame := make([]byte, 12+len(data))
 	binary.BigEndian.PutUint32(frame[0:4], total)
@@ -418,6 +410,7 @@ func (t *TransportDNS) handlePUT(req *dnsRequest) putAckInfo {
 
 	if complete && assembled != nil {
 		_ = Ts.TsAgentProcessData(agentId, assembled)
+		adaptix.NoteFrameRecv(Ts, agentId)
 	}
 
 	ack.total = total
@@ -561,7 +554,7 @@ func (t *TransportDNS) buildDataResponse(req *dnsRequest, frame []byte, ttl uint
 
 const (
 	seqXorMask       = 0x39913991
-	dnsSafeChunkSize = 280
+	dnsSafeChunkSize = 160
 	defaultChunkSize = 4096
 	shutdownTimeout  = 2 * time.Second
 )

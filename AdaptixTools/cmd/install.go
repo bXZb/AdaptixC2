@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -26,8 +25,16 @@ var (
 var installCmd = &cobra.Command{
 	Use:   "install [source]",
 	Short: "Install plugin(s) or axscript kit(s)",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runInstall,
+	Long: `Install from a local directory, a plugin archive, a git URL, or adaptix.spec packages:.
+
+Archives (.zip, .tar, .tar.gz, .tgz) may contain one plugin (axtool.spec at
+the root) or several plugin directories. A single wrapper folder is unwrapped.
+
+  axtool adaptix.spec ext install ./plugins.tgz -f
+  axtool adaptix.spec ext install ./beacon_agent -f
+  axtool adaptix.spec ext install github.com/org/repo@v1 --name beacon_agent`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runInstall,
 }
 
 func init() {
@@ -188,52 +195,4 @@ func installSpecPackages(c *cobra.Command, force bool, noProfile bool) error {
 		NoProfile: noProfile,
 		Out:       out,
 	})
-}
-
-func collectLocalPackageAptDeps(srv spec.ServerSpec) []string {
-	projectRoot, err := resolveProjectRoot()
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, ref := range srv.Packages {
-		src := strings.TrimSpace(ref.Source)
-		if src == "" {
-			continue
-		}
-
-		if !strings.HasPrefix(src, ".") && !strings.HasPrefix(src, "/") && !filepath.IsAbs(src) {
-
-			if !fileExists(src) {
-				continue
-			}
-		}
-		path := src
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(projectRoot, path)
-		}
-		if ref.Path != "" {
-			path = filepath.Join(path, filepath.FromSlash(ref.Path))
-		}
-		pl, err := spec.LoadPlugin(path)
-		if err != nil {
-			continue
-		}
-		if ref.Name != "" {
-
-			for _, e := range pl.Extenders {
-				if e.Name == ref.Name {
-					out = append(out, e.Deps.Apt...)
-				}
-			}
-			continue
-		}
-		out = append(out, pl.CollectPluginAptDeps()...)
-	}
-	return out
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }

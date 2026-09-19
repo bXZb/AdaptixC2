@@ -23,24 +23,28 @@ func New(source string) (Resolver, error) {
 	if source == "" {
 		return nil, errors.New("empty source")
 	}
+	abs, absErr := filepath.Abs(source)
+	if absErr == nil {
+		if info, err := os.Stat(abs); err == nil {
+			if !info.IsDir() {
+				if isArchiveName(abs) {
+					return &ArchiveResolver{Path: abs}, nil
+				}
+				return nil, fmt.Errorf("local source %q is not a directory or plugin archive (.zip/.tar/.tar.gz/.tgz)", abs)
+			}
+			if hasSpec(abs) {
+				return &LocalResolver{Path: abs}, nil
+			}
+			return &BulkResolver{Root: abs}, nil
+		}
+	}
 	if isGitSource(source) {
 		return &GitResolver{Source: source}, nil
 	}
-	abs, err := filepath.Abs(source)
-	if err != nil {
-		return nil, fmt.Errorf("resolve local path %q: %w", source, err)
+	if absErr != nil {
+		return nil, fmt.Errorf("resolve local path %q: %w", source, absErr)
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return nil, fmt.Errorf("stat local source %q: %w", source, err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("local source %q is not a directory", source)
-	}
-	if _, err := os.Stat(filepath.Join(abs, specFileName)); err == nil {
-		return &LocalResolver{Path: abs}, nil
-	}
-	return &BulkResolver{Root: abs}, nil
+	return nil, fmt.Errorf("stat local source %q: %w", source, os.ErrNotExist)
 }
 
 func isGitSource(s string) bool {

@@ -12,6 +12,8 @@ ifeq ($(UNAME_S),Darwin)
   NPROC := $(shell sysctl -n hw.ncpu)
 endif
 
+COMPOSE_BUILD_PROFILES := --profile build-server --profile build-extenders --profile build-server-ext --profile build-client
+
 
 
 ### CLEAN ###
@@ -36,14 +38,14 @@ clean-all: clean
 
 docker-clean:
 	@ echo "[*] Cleaning Docker containers and images..."
-	@ docker compose --profile build-server --profile build-extenders --profile build-server-ext down --rmi local 2>/dev/null || true
+	@ docker compose $(COMPOSE_BUILD_PROFILES) down --rmi local 2>/dev/null || true
 	@ echo "[+] Docker containers and images cleaned"
 
 docker-clean-all: docker-clean
 	@ echo "[*] Cleaning all Docker artifacts (containers, images, volumes, networks)..."
-	@ docker compose --profile build-server --profile build-extenders --profile build-server-ext --profile runtime down --rmi all --volumes 2>/dev/null || true
+	@ docker compose $(COMPOSE_BUILD_PROFILES) --profile runtime down --rmi all --volumes 2>/dev/null || true
 	@ echo "[*] Cleaning build output directories..."
-	@ rm -rf AdaptixServer/server-dist 2>/dev/null || true
+	@ rm -rf AdaptixServer/server-dist AdaptixClient/client-dist 2>/dev/null || true
 	@ echo "[+] All Docker artifacts cleaned"
 
 
@@ -80,7 +82,7 @@ server-ext: clean server extenders
 tools: prepare
 	@ echo "[*] Building axtool"
 	@ cd AdaptixTools && $(MAKE) --no-print-directory
-	@ mv AdaptixTools/dist/axtool ./$(DIST_DIR)/axtool
+	@ cp AdaptixTools/dist/axtool ./$(DIST_DIR)/axtool
 	@ echo "[+] done -> $(DIST_DIR)/axtool"
 
 
@@ -132,8 +134,8 @@ docker-build-server-ext:
 	@ docker compose --profile build-server-ext down
 	@ echo "[+] Server and extenders built via Docker"
 
-docker-build-all: docker-build-server-ext
-	@ echo "[+] All Docker builds completed"
+docker-build-all: docker-build-server-ext docker-build-client
+	@ echo "[+] All Docker builds completed (server, extenders, client AppImage)"
 
 
 
@@ -165,6 +167,7 @@ help:
 	@ echo ""
 	@ echo "Available targets:"
 	@ echo "  all              - Build everything (server, client, extenders)"
+	@ echo "  tools            - Build axtool into dist/"
 	@ echo "  extenders        - Build only the extenders"
 	@ echo "  server-ext       - Build server and extenders (no client, ideal for VPS)"
 	@ echo "  server           - Build only the server"
@@ -178,16 +181,18 @@ help:
 	@ echo "  docker-build-client     - Build client AppImage via Docker Compose"
 	@ echo "  docker-build-extenders  - Build extenders via Docker Compose"
 	@ echo "  docker-build-server-ext - Build server and extenders via Docker Compose"
-	@ echo "  docker-build-all        - Build server and extenders via Docker Compose (alias)"
+	@ echo "  docker-build-all        - Build server, extenders, and client AppImage"
 	@ echo "  docker-up               - Start runtime container (detached)"
 	@ echo "  docker-down             - Stop runtime container"
 	@ echo "  docker-logs             - View runtime container logs (follow mode)"
 	@ echo "  docker-restart          - Restart runtime container"
-	@ echo "  docker-clean            - Remove Docker containers and images (builders only)"
-	@ echo "  docker-clean-all        - Remove all Docker artifacts (containers, images, volumes, networks)"
+	@ echo "  docker-clean            - Remove Docker builder containers and images"
+	@ echo "  docker-clean-all        - Remove all Docker artifacts (builders, runtime, volumes, server-dist, client-dist)"
 	@ echo ""
 	@ echo "  help             - Show this help message"
 	@ echo ""
 	@ echo "Platform: $(UNAME_S) [$(NPROC) proc]"
 
-.PHONY: all extenders server-ext server client clean clean-all docker-build-server docker-build-extenders docker-build-server-ext docker-build-all docker-up docker-down docker-logs docker-restart docker-clean docker-clean-all help prepare
+.PHONY: all tools extenders server-ext server client client-fast clean clean-all \
+	docker-build-server docker-build-client docker-build-extenders docker-build-server-ext docker-build-all \
+	docker-up docker-down docker-logs docker-restart docker-clean docker-clean-all help prepare

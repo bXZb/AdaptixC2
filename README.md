@@ -14,7 +14,16 @@ This tool is designed for AUTHORIZED security testing and red team operations ON
 
 ## Getting Started
 
-Please checkout the [wiki](https://adaptix-framework.gitbook.io/adaptix-framework/adaptix-c2/getting-starting/installation).
+Build from this tree with **axtool** (see [`BUILD.md`](BUILD.md)):
+
+```bash
+make tools
+./dist/axtool adaptix.spec server build --gen-cert
+./dist/axtool adaptix.spec client build
+cd dist && ./adaptixserver -profile profile.yaml
+```
+
+Wiki: [installation](https://adaptix-framework.gitbook.io/adaptix-framework/adaptix-c2/getting-starting/installation). axtool CLI: [`AdaptixTools/README.md`](AdaptixTools/README.md).
 
 
 

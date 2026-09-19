@@ -15,8 +15,8 @@ packages:
 
   # Multi-package repo — install only one name from root axtool.spec:
   # - source: github.com/org/monorepo@v1
-  #   name: golem_agent
+  #   name: my_agent
 
   # Or pick a subfolder that has its own axtool.spec:
   # - source: github.com/org/monorepo@v1
-  #   path: golem/golem_agent
+  #   path: my_agent
